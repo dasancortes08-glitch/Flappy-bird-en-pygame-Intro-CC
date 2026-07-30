@@ -1,0 +1,248 @@
+import pygame
+import random
+import sys
+
+# ----------------------------
+# Configuración inicial
+# ----------------------------
+pygame.init()
+
+ANCHO, ALTO = 400, 600
+pantalla = pygame.display.set_mode((ANCHO, ALTO))
+pygame.display.set_caption("Flappy Bird")
+reloj = pygame.time.Clock()
+FPS = 60
+
+# Colores
+CIELO = (113, 197, 207)
+VERDE_TUBO = (60, 179, 90)
+VERDE_TUBO_BORDE = (34, 120, 60)
+AMARILLO = (255, 213, 79)
+NARANJA = (230, 126, 34)
+BLANCO = (255, 255, 255)
+NEGRO = (30, 30, 30)
+SUELO_COLOR = (222, 184, 135)
+
+fuente_grande = pygame.font.SysFont("arial", 48, bold=True)
+fuente_media = pygame.font.SysFont("arial", 28, bold=True)
+fuente_chica = pygame.font.SysFont("arial", 20)
+
+# ----------------------------
+# Parámetros del juego
+# ----------------------------
+GRAVEDAD = 0.5
+FUERZA_SALTO = -8.5
+VELOCIDAD_TUBOS = 3
+ESPACIO_TUBOS = 150
+ANCHO_TUBO = 60
+INTERVALO_TUBOS = 90  # frames entre tubos nuevos
+ALTO_SUELO = 60
+
+
+class Pajaro:
+    def __init__(self):
+        self.x = 80
+        self.y = ALTO // 2
+        self.radio = 16
+        self.velocidad = 0
+        self.angulo = 0
+
+    def saltar(self):
+        self.velocidad = FUERZA_SALTO
+
+    def actualizar(self):
+        self.velocidad += GRAVEDAD
+        self.y += self.velocidad
+        self.angulo = max(-25, min(90, self.velocidad * 4))
+
+    def dibujar(self, superficie):
+        superficie_pajaro = pygame.Surface((self.radio * 2, self.radio * 2), pygame.SRCALPHA)
+        # Cuerpo
+        pygame.draw.circle(superficie_pajaro, AMARILLO, (self.radio, self.radio), self.radio)
+        # Ala
+        pygame.draw.ellipse(superficie_pajaro, NARANJA,
+                             (self.radio - 12, self.radio - 2, 16, 10))
+        # Ojo
+        pygame.draw.circle(superficie_pajaro, NEGRO, (self.radio + 6, self.radio - 6), 3)
+        # Pico
+        pygame.draw.polygon(superficie_pajaro, NARANJA, [
+            (self.radio + self.radio - 4, self.radio - 2),
+            (self.radio + self.radio + 6, self.radio + 2),
+            (self.radio + self.radio - 4, self.radio + 6),
+        ])
+        rotada = pygame.transform.rotate(superficie_pajaro, -self.angulo)
+        rect = rotada.get_rect(center=(self.x, int(self.y)))
+        superficie.blit(rotada, rect)
+
+    def get_rect(self):
+        return pygame.Rect(self.x - self.radio, int(self.y) - self.radio,
+                            self.radio * 2, self.radio * 2)
+
+
+class Tubo:
+    def __init__(self, x):
+        self.x = x
+        self.alto_hueco = random.randint(120, ALTO - ALTO_SUELO - 120 - ESPACIO_TUBOS)
+        self.superado = False
+
+    def actualizar(self):
+        self.x -= VELOCIDAD_TUBOS
+
+    def dibujar(self, superficie):
+        # Tubo superior
+        rect_sup = pygame.Rect(self.x, 0, ANCHO_TUBO, self.alto_hueco)
+        pygame.draw.rect(superficie, VERDE_TUBO, rect_sup)
+        pygame.draw.rect(superficie, VERDE_TUBO_BORDE, rect_sup, 4)
+        pygame.draw.rect(superficie, VERDE_TUBO,
+                          (self.x - 5, self.alto_hueco - 25, ANCHO_TUBO + 10, 25))
+        pygame.draw.rect(superficie, VERDE_TUBO_BORDE,
+                          (self.x - 5, self.alto_hueco - 25, ANCHO_TUBO + 10, 25), 3)
+
+        # Tubo inferior
+        y_inf = self.alto_hueco + ESPACIO_TUBOS
+        alto_inf = ALTO - ALTO_SUELO - y_inf
+        rect_inf = pygame.Rect(self.x, y_inf, ANCHO_TUBO, alto_inf)
+        pygame.draw.rect(superficie, VERDE_TUBO, rect_inf)
+        pygame.draw.rect(superficie, VERDE_TUBO_BORDE, rect_inf, 4)
+        pygame.draw.rect(superficie, VERDE_TUBO,
+                          (self.x - 5, y_inf, ANCHO_TUBO + 10, 25))
+        pygame.draw.rect(superficie, VERDE_TUBO_BORDE,
+                          (self.x - 5, y_inf, ANCHO_TUBO + 10, 25), 3)
+
+    def get_rects(self):
+        rect_sup = pygame.Rect(self.x, 0, ANCHO_TUBO, self.alto_hueco)
+        y_inf = self.alto_hueco + ESPACIO_TUBOS
+        rect_inf = pygame.Rect(self.x, y_inf, ANCHO_TUBO, ALTO - ALTO_SUELO - y_inf)
+        return rect_sup, rect_inf
+
+
+def dibujar_suelo(superficie, desplazamiento):
+    rect = pygame.Rect(0, ALTO - ALTO_SUELO, ANCHO, ALTO_SUELO)
+    pygame.draw.rect(superficie, SUELO_COLOR, rect)
+    pygame.draw.rect(superficie, (150, 111, 51), (0, ALTO - ALTO_SUELO, ANCHO, 6))
+    ancho_franja = 40
+    x = -desplazamiento % ancho_franja
+    while x < ANCHO:
+        pygame.draw.line(superficie, (150, 111, 51),
+                          (x, ALTO - ALTO_SUELO + 10), (x - 15, ALTO), 4)
+        x += ancho_franja
+
+
+def texto_centrado(superficie, texto, fuente, color, y):
+    render = fuente.render(texto, True, color)
+    rect = render.get_rect(center=(ANCHO // 2, y))
+    superficie.blit(render, rect)
+
+
+def pantalla_inicio():
+    esperando = True
+    while esperando:
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if evento.type == pygame.KEYDOWN and evento.key == pygame.K_SPACE:
+                esperando = False
+            if evento.type == pygame.MOUSEBUTTONDOWN:
+                esperando = False
+
+        pantalla.fill(CIELO)
+        dibujar_suelo(pantalla, 0)
+        texto_centrado(pantalla, "FLAPPY BIRD", fuente_grande, BLANCO, 200)
+        texto_centrado(pantalla, "Presiona ESPACIO o clic", fuente_media, NEGRO, 280)
+        texto_centrado(pantalla, "para empezar a volar", fuente_media, NEGRO, 315)
+        pygame.display.flip()
+        reloj.tick(FPS)
+
+
+def pantalla_game_over(puntaje, record):
+    esperando = True
+    while esperando:
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if evento.type == pygame.KEYDOWN and evento.key == pygame.K_SPACE:
+                esperando = False
+            if evento.type == pygame.MOUSEBUTTONDOWN:
+                esperando = False
+
+        texto_centrado(pantalla, "GAME OVER", fuente_grande, (200, 30, 30), 220)
+        texto_centrado(pantalla, f"Puntaje: {puntaje}", fuente_media, NEGRO, 280)
+        texto_centrado(pantalla, f"Record: {record}", fuente_media, NEGRO, 315)
+        texto_centrado(pantalla, "ESPACIO o clic para reintentar", fuente_chica, NEGRO, 360)
+        pygame.display.flip()
+        reloj.tick(FPS)
+
+
+def jugar():
+    pajaro = Pajaro()
+    tubos = [Tubo(ANCHO + 100)]
+    contador_frames = 0
+    puntaje = 0
+    desplazamiento_suelo = 0
+    corriendo = True
+
+    while corriendo:
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if evento.type == pygame.KEYDOWN and evento.key == pygame.K_SPACE:
+                pajaro.saltar()
+            if evento.type == pygame.MOUSEBUTTONDOWN:
+                pajaro.saltar()
+
+        pajaro.actualizar()
+        desplazamiento_suelo += VELOCIDAD_TUBOS
+
+        contador_frames += 1
+        if contador_frames >= INTERVALO_TUBOS:
+            tubos.append(Tubo(ANCHO + 20))
+            contador_frames = 0
+
+        for tubo in tubos:
+            tubo.actualizar()
+            if not tubo.superado and tubo.x + ANCHO_TUBO < pajaro.x:
+                tubo.superado = True
+                puntaje += 1
+
+        tubos[:] = [t for t in tubos if t.x > -ANCHO_TUBO - 10]
+
+        # Colisiones
+        rect_pajaro = pajaro.get_rect()
+        if pajaro.y + pajaro.radio >= ALTO - ALTO_SUELO or pajaro.y - pajaro.radio <= 0:
+            corriendo = False
+        for tubo in tubos:
+            rect_sup, rect_inf = tubo.get_rects()
+            if rect_pajaro.colliderect(rect_sup) or rect_pajaro.colliderect(rect_inf):
+                corriendo = False
+
+        # Dibujado
+        pantalla.fill(CIELO)
+        for tubo in tubos:
+            tubo.dibujar(pantalla)
+        dibujar_suelo(pantalla, desplazamiento_suelo)
+        pajaro.dibujar(pantalla)
+
+        texto_puntaje = fuente_grande.render(str(puntaje), True, BLANCO)
+        rect_texto = texto_puntaje.get_rect(center=(ANCHO // 2, 60))
+        pantalla.blit(texto_puntaje, rect_texto)
+
+        pygame.display.flip()
+        reloj.tick(FPS)
+
+    return puntaje
+
+
+def main():
+    record = 0
+    pantalla_inicio()
+    while True:
+        puntaje = jugar()
+        record = max(record, puntaje)
+        pantalla_game_over(puntaje, record)
+
+
+if __name__ == "__main__":
+    main()
